@@ -28,6 +28,9 @@ def train_rnn(
 ) -> dict:
     """Train the WorldRNN on encoded latent sequences.
 
+    Args:
+        val_split: Fraction of data held out for validation (default 0.1).
+
     Returns dict with training history.
     """
     device = get_device()

@@ -10,15 +10,22 @@ env:
   num_food: 5
   num_hazards: 3
   food_respawn_steps: 10
+  reward_food: 1.0
+  reward_hazard: -1.0
+  reward_goal: 5.0
+  reward_step: -0.01
 
 vae:
   latent_dim: 32
+  input_channels: 3
   beta: 0.5
   lr: 0.001
   batch_size: 64
   epochs: 20
 
 rnn:
+  latent_dim: 32
+  action_dim: 4
   hidden_dim: 256
   lr: 0.001
   batch_size: 32
@@ -26,6 +33,9 @@ rnn:
   seq_len: 50
 
 controller:
+  latent_dim: 32
+  hidden_dim: 256
+  action_dim: 4
   population_size: 64
   generations: 100
   num_rollouts: 16

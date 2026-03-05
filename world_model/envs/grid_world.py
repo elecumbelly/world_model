@@ -27,6 +27,11 @@ COLORS = {
 
 
 class GridWorld(BaseEnv):
+    """16x16 procedural grid world with walls, food, hazards, and a goal.
+
+    Renders as 64x64 RGB (4px per cell). Episodes end on goal or max_steps.
+    """
+
     def __init__(
         self,
         grid_size: int = 16,

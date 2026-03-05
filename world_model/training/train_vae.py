@@ -27,6 +27,9 @@ def train_vae(
 ) -> dict:
     """Train the ConvVAE on observation images.
 
+    Args:
+        val_split: Fraction of data held out for validation (default 0.1).
+
     Returns dict with training history (loss curves).
     """
     device = get_device()
