@@ -1,0 +1,26 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+.eggs/
+
+data/rollouts/
+data/encoded/
+checkpoints/
+
+*.pt
+*.npz
+
+.venv/
+.env
+
+.DS_Store
+*.swp
+
+notebooks/.ipynb_checkpoints/
+
+# Generated outputs
+*.png
+*.gif
+.pytest_cache/

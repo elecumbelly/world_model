@@ -1,0 +1,36 @@
+seed: 42
+data_dir: data
+checkpoint_dir: checkpoints
+
+env:
+  grid_size: 16
+  render_size: 64
+  max_steps: 200
+  wall_density: 0.1
+  num_food: 5
+  num_hazards: 3
+  food_respawn_steps: 10
+
+vae:
+  latent_dim: 32
+  beta: 0.5
+  lr: 0.001
+  batch_size: 64
+  epochs: 20
+
+rnn:
+  hidden_dim: 256
+  lr: 0.001
+  batch_size: 32
+  epochs: 30
+  seq_len: 50
+
+controller:
+  population_size: 64
+  generations: 100
+  num_rollouts: 16
+  sigma_init: 0.1
+
+collect:
+  num_rollouts: 1000
+  policy: random
