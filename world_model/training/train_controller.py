@@ -33,32 +33,32 @@ def evaluate_controller(
     env = GridWorld(**env_kwargs)
     total_rewards = []
 
-    for i in range(num_rollouts):
-        obs = env.reset(seed=i * 1000)
-        hidden = rnn.initial_hidden(1, device)
-        episode_reward = 0.0
-        done = False
+    with torch.no_grad():
+        for i in range(num_rollouts):
+            obs = env.reset(seed=i * 1000)
+            hidden = rnn.initial_hidden(1, device)
+            episode_reward = 0.0
+            done = False
 
-        while not done:
-            # Encode observation
-            obs_t = torch.from_numpy(obs.astype(np.float32) / 255.0).permute(2, 0, 1).unsqueeze(0).to(device)
-            with torch.no_grad():
+            while not done:
+                # Encode observation
+                obs_t = torch.from_numpy(obs.astype(np.float32) / 255.0).permute(2, 0, 1).unsqueeze(0).to(device)
                 mu, _ = vae.encode(obs_t)
                 z = mu  # Use mean (no sampling for evaluation)
 
-            # Get action from controller
-            h = hidden.squeeze(0)  # (1, hidden_dim)
-            action = controller.act(z, h)
+                # Get action from controller
+                h = hidden.squeeze(0)  # (1, hidden_dim)
+                action = controller.act(z, h)
 
-            # Update RNN hidden state
-            action_oh = torch.zeros(1, 1, 4, device=device)
-            action_oh[0, 0, action] = 1.0
-            _, _, _, hidden = rnn.forward(z.unsqueeze(1), action_oh, hidden)
+                # Update RNN hidden state
+                action_oh = torch.zeros(1, 1, rnn.action_dim, device=device)
+                action_oh[0, 0, action] = 1.0
+                _, _, _, hidden = rnn.forward(z.unsqueeze(1), action_oh, hidden)
 
-            obs, reward, done, _ = env.step(action)
-            episode_reward += reward
+                obs, reward, done, _ = env.step(action)
+                episode_reward += reward
 
-        total_rewards.append(episode_reward)
+            total_rewards.append(episode_reward)
 
     return float(np.mean(total_rewards))
 

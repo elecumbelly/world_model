@@ -74,3 +74,18 @@ class TestGridWorld:
         obs1 = self.env.reset(seed=1)
         obs2 = self.env.reset(seed=2)
         assert not np.array_equal(obs1, obs2)
+
+    def test_render_size_not_divisible_raises(self):
+        with pytest.raises(ValueError, match="render_size.*must be divisible"):
+            GridWorld(grid_size=16, render_size=65)
+
+    def test_dense_map_capacity_raises(self):
+        with pytest.raises(ValueError, match="Not enough interior cells"):
+            GridWorld(grid_size=4, wall_density=0.9, num_food=5, num_hazards=3)
+
+    def test_small_grid_valid_config(self):
+        env = GridWorld(grid_size=6, render_size=12, num_food=1, num_hazards=1, wall_density=0.0)
+        obs = env.reset(seed=42)
+        assert obs.shape == (12, 12, 3)
+        assert np.sum(env.grid == AGENT) == 1
+        assert np.sum(env.grid == GOAL) == 1

@@ -3,7 +3,7 @@
 from pathlib import Path
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 from tqdm import tqdm
 
 from world_model.models.vae import ConvVAE, vae_loss
@@ -23,6 +23,7 @@ def train_vae(
     batch_size: int = 64,
     epochs: int = 20,
     max_files: int | None = None,
+    val_split: float = 0.1,
 ) -> dict:
     """Train the ConvVAE on observation images.
 
@@ -31,9 +32,21 @@ def train_vae(
     device = get_device()
     log.info(f"Training VAE on {device}")
 
-    dataset = ObservationDataset(rollout_dir, max_files=max_files)
-    log.info(f"Dataset: {len(dataset)} observations")
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    full_dataset = ObservationDataset(rollout_dir, max_files=max_files)
+    if len(full_dataset) < batch_size:
+        log.warning(f"Dataset ({len(full_dataset)} obs) smaller than batch_size ({batch_size})")
+
+    # Train/val split
+    n_val = max(1, int(len(full_dataset) * val_split))
+    n_train = len(full_dataset) - n_val
+    train_dataset, val_dataset = random_split(
+        full_dataset, [n_train, n_val],
+        generator=torch.Generator().manual_seed(42),
+    )
+    log.info(f"Dataset: {n_train} train / {n_val} val observations")
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
 
     model = ConvVAE(latent_dim=latent_dim).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -41,15 +54,19 @@ def train_vae(
     ckpt_path = Path(checkpoint_dir)
     ckpt_path.mkdir(parents=True, exist_ok=True)
 
-    history = {"recon_loss": [], "kl_loss": [], "total_loss": []}
-    best_loss = float("inf")
+    history = {
+        "recon_loss": [], "kl_loss": [], "total_loss": [],
+        "val_recon_loss": [], "val_kl_loss": [], "val_total_loss": [],
+    }
+    best_val_loss = float("inf")
 
     for epoch in range(epochs):
+        # --- Train ---
         model.train()
         epoch_losses = {"recon_loss": 0, "kl_loss": 0, "total_loss": 0}
         n_batches = 0
 
-        for batch in tqdm(loader, desc=f"VAE Epoch {epoch+1}/{epochs}", leave=False):
+        for batch in tqdm(train_loader, desc=f"VAE Epoch {epoch+1}/{epochs}", leave=False):
             batch = batch.to(device)
             recon, mu, logvar = model(batch)
             loss, losses = vae_loss(recon, batch, mu, logvar, beta=beta)
@@ -66,19 +83,38 @@ def train_vae(
             epoch_losses[k] /= n_batches
             history[k].append(epoch_losses[k])
 
+        # --- Validate ---
+        model.eval()
+        val_losses = {"val_recon_loss": 0, "val_kl_loss": 0, "val_total_loss": 0}
+        n_val_batches = 0
+        with torch.no_grad():
+            for batch in val_loader:
+                batch = batch.to(device)
+                recon, mu, logvar = model(batch)
+                _, losses = vae_loss(recon, batch, mu, logvar, beta=beta)
+                val_losses["val_recon_loss"] += losses["recon_loss"]
+                val_losses["val_kl_loss"] += losses["kl_loss"]
+                val_losses["val_total_loss"] += losses["total_loss"]
+                n_val_batches += 1
+
+        for k in val_losses:
+            val_losses[k] /= n_val_batches
+            history[k].append(val_losses[k])
+
         log.info(
             f"Epoch {epoch+1}/{epochs} | "
+            f"train={epoch_losses['total_loss']:.6f} | "
+            f"val={val_losses['val_total_loss']:.6f} | "
             f"recon={epoch_losses['recon_loss']:.6f} | "
-            f"kl={epoch_losses['kl_loss']:.4f} | "
-            f"total={epoch_losses['total_loss']:.6f}"
+            f"kl={epoch_losses['kl_loss']:.4f}"
         )
 
-        if epoch_losses["total_loss"] < best_loss:
-            best_loss = epoch_losses["total_loss"]
+        if val_losses["val_total_loss"] < best_val_loss:
+            best_val_loss = val_losses["val_total_loss"]
             torch.save(model.state_dict(), ckpt_path / "best.pt")
 
     torch.save(model.state_dict(), ckpt_path / "final.pt")
-    log.info(f"VAE training complete. Best loss: {best_loss:.6f}")
+    log.info(f"VAE training complete. Best val loss: {best_val_loss:.6f}")
     return history
 
 
@@ -107,9 +143,13 @@ def encode_dataset(
     encoded_path = Path(encoded_dir)
     encoded_path.mkdir(parents=True, exist_ok=True)
 
+    if not rollout_path.exists():
+        raise FileNotFoundError(f"Rollout directory not found: {rollout_path.resolve()}")
     files = sorted(rollout_path.glob("rollout_*.npz"))
     if max_files is not None:
         files = files[:max_files]
+    if not files:
+        raise FileNotFoundError(f"No rollout_*.npz files in {rollout_path.resolve()}")
 
     log.info(f"Encoding {len(files)} rollouts to {encoded_dir}")
 

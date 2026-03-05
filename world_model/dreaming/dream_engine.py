@@ -150,43 +150,44 @@ class DreamEngine:
 
         Returns dict with real_* and dream_* trajectories.
         """
-        # Start real environment
-        real_obs = env.reset(seed=seed)
-        z = self.encode_observation(real_obs)
-        hidden = self.rnn.initial_hidden(1, self.device)
+        with torch.no_grad():
+            # Start real environment
+            real_obs = env.reset(seed=seed)
+            z = self.encode_observation(real_obs)
+            hidden = self.rnn.initial_hidden(1, self.device)
 
-        real_observations = [real_obs]
-        dream_observations = [self.decode_latent(z)]
-        real_rewards = []
-        dream_rewards = []
-        actions = []
+            real_observations = [real_obs]
+            dream_observations = [self.decode_latent(z)]
+            real_rewards = []
+            dream_rewards = []
+            actions = []
 
-        for step in range(num_steps):
-            # Controller picks action (same for both)
-            h = hidden.squeeze(0)
-            action = self.controller.act(z, h)
+            for step in range(num_steps):
+                # Controller picks action (same for both)
+                h = hidden.squeeze(0)
+                action = self.controller.act(z, h)
 
-            # One-hot action
-            action_oh = torch.zeros(1, 1, self.rnn.action_dim, device=self.device)
-            action_oh[0, 0, action] = 1.0
+                # One-hot action
+                action_oh = torch.zeros(1, 1, self.rnn.action_dim, device=self.device)
+                action_oh[0, 0, action] = 1.0
 
-            # Dream: RNN predicts next
-            next_z, dream_r, done_prob, hidden = self.rnn.predict_step(
-                z.unsqueeze(1), action_oh, hidden
-            )
-            z = next_z.squeeze(1)
+                # Dream: RNN predicts next
+                next_z, dream_r, done_prob, hidden = self.rnn.predict_step(
+                    z.unsqueeze(1), action_oh, hidden
+                )
+                z = next_z.squeeze(1)
 
-            # Real: step environment
-            real_obs, real_r, done, _ = env.step(action)
+                # Real: step environment
+                real_obs, real_r, done, _ = env.step(action)
 
-            dream_observations.append(self.decode_latent(z))
-            real_observations.append(real_obs)
-            dream_rewards.append(dream_r)
-            real_rewards.append(real_r)
-            actions.append(action)
+                dream_observations.append(self.decode_latent(z))
+                real_observations.append(real_obs)
+                dream_rewards.append(dream_r)
+                real_rewards.append(real_r)
+                actions.append(action)
 
-            if done:
-                break
+                if done:
+                    break
 
         return {
             "real_observations": real_observations,

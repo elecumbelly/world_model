@@ -88,3 +88,42 @@ class TestMiniPipeline:
 
         assert len(result["observations"]) >= 2
         assert len(result["actions"]) >= 1
+
+
+class TestDatasetPreflightChecks:
+    """Verify datasets fail fast with actionable messages on bad data."""
+
+    def test_observation_dataset_missing_dir(self, tmp_path):
+        with pytest.raises(FileNotFoundError, match="Rollout directory not found"):
+            ObservationDataset(str(tmp_path / "nonexistent"))
+
+    def test_observation_dataset_empty_dir(self, tmp_path):
+        empty_dir = tmp_path / "empty_rollouts"
+        empty_dir.mkdir()
+        with pytest.raises(FileNotFoundError, match="No rollout_\\*\\.npz files"):
+            ObservationDataset(str(empty_dir))
+
+    def test_sequence_dataset_missing_dir(self, tmp_path):
+        with pytest.raises(FileNotFoundError, match="Encoded directory not found"):
+            SequenceDataset(str(tmp_path / "nonexistent"))
+
+    def test_sequence_dataset_empty_dir(self, tmp_path):
+        empty_dir = tmp_path / "empty_encoded"
+        empty_dir.mkdir()
+        with pytest.raises(FileNotFoundError, match="No encoded_\\*\\.npz files"):
+            SequenceDataset(str(empty_dir))
+
+    def test_sequence_dataset_too_short(self, tmp_path):
+        """All rollouts shorter than seq_len should raise ValueError."""
+        enc_dir = tmp_path / "short_encoded"
+        enc_dir.mkdir()
+        # Create a file with only 3 steps (need seq_len+1 = 51)
+        np.savez(
+            enc_dir / "encoded_00000.npz",
+            latents=np.zeros((4, 32)),
+            actions=np.zeros(3, dtype=np.int32),
+            rewards=np.zeros(3),
+            dones=np.zeros(3, dtype=bool),
+        )
+        with pytest.raises(ValueError, match="No sequences long enough"):
+            SequenceDataset(str(enc_dir), seq_len=50)

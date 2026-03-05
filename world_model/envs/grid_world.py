@@ -41,6 +41,26 @@ class GridWorld(BaseEnv):
         reward_goal: float = 5.0,
         reward_step: float = -0.01,
     ):
+        if render_size % grid_size != 0:
+            raise ValueError(
+                f"render_size ({render_size}) must be divisible by grid_size ({grid_size}). "
+                f"Got remainder {render_size % grid_size}. Use render_size={grid_size * (render_size // grid_size)} "
+                f"or render_size={grid_size * (render_size // grid_size + 1)}."
+            )
+
+        interior_cells = (grid_size - 2) ** 2
+        required_entities = 1 + 1 + num_food + num_hazards  # agent + goal + food + hazards
+        max_walls = int(interior_cells * wall_density)
+        available = interior_cells - max_walls
+        if available < required_entities:
+            raise ValueError(
+                f"Not enough interior cells for entities. "
+                f"interior={interior_cells}, walls={max_walls} (density={wall_density}), "
+                f"remaining={available}, required={required_entities} "
+                f"(1 agent + 1 goal + {num_food} food + {num_hazards} hazards). "
+                f"Reduce wall_density or num_food/num_hazards."
+            )
+
         self.grid_size = grid_size
         self.render_size = render_size
         self.max_steps = max_steps

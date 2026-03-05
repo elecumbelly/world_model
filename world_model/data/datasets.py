@@ -16,9 +16,19 @@ class ObservationDataset(Dataset):
     def __init__(self, rollout_dir: str = "data/rollouts", max_files: int | None = None):
         self.observations = []
         rollout_path = Path(rollout_dir)
+        if not rollout_path.exists():
+            raise FileNotFoundError(
+                f"Rollout directory not found: {rollout_path.resolve()}. "
+                f"Run 01_collect_rollouts.py first."
+            )
         files = sorted(rollout_path.glob("rollout_*.npz"))
         if max_files is not None:
             files = files[:max_files]
+        if not files:
+            raise FileNotFoundError(
+                f"No rollout_*.npz files in {rollout_path.resolve()}. "
+                f"Run 01_collect_rollouts.py first."
+            )
 
         for f in files:
             data = np.load(f)
@@ -48,10 +58,21 @@ class SequenceDataset(Dataset):
         self.sequences = []
 
         encoded_path = Path(encoded_dir)
+        if not encoded_path.exists():
+            raise FileNotFoundError(
+                f"Encoded directory not found: {encoded_path.resolve()}. "
+                f"Run 03_encode_dataset.py first."
+            )
         files = sorted(encoded_path.glob("encoded_*.npz"))
         if max_files is not None:
             files = files[:max_files]
+        if not files:
+            raise FileNotFoundError(
+                f"No encoded_*.npz files in {encoded_path.resolve()}. "
+                f"Run 03_encode_dataset.py first."
+            )
 
+        skipped = 0
         for f in files:
             data = np.load(f)
             z = data["latents"]        # (T+1, latent_dim)
@@ -67,42 +88,47 @@ class SequenceDataset(Dataset):
                     "rewards": rewards,
                     "dones": dones,
                 })
+            else:
+                skipped += 1
 
-    def __len__(self) -> int:
-        total = 0
-        for seq in self.sequences:
-            T = len(seq["actions"])
-            total += max(1, T - self.seq_len)
-        return total
+        if not self.sequences:
+            raise ValueError(
+                f"No sequences long enough for seq_len={seq_len}. "
+                f"All {len(files)} files had fewer than {seq_len + 1} steps. "
+                f"Reduce seq_len or collect longer rollouts."
+            )
 
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
-        # Find which sequence and offset
-        for seq in self.sequences:
+        # Precompute flat index map: (seq_idx, start_offset) for O(1) lookup
+        self._index_map = []
+        for seq_idx, seq in enumerate(self.sequences):
             T = len(seq["actions"])
             n_chunks = max(1, T - self.seq_len)
-            if idx < n_chunks:
-                start = idx
-                end = start + self.seq_len
+            for offset in range(n_chunks):
+                self._index_map.append((seq_idx, offset))
 
-                z = torch.tensor(seq["latents"][start:end], dtype=torch.float32)
-                z_next = torch.tensor(seq["latents"][start + 1:end + 1], dtype=torch.float32)
+    def __len__(self) -> int:
+        return len(self._index_map)
 
-                # One-hot encode actions
-                actions_idx = seq["actions"][start:end]
-                actions = np.zeros((self.seq_len, self.action_dim), dtype=np.float32)
-                for t, a in enumerate(actions_idx):
-                    actions[t, a] = 1.0
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+        seq_idx, start = self._index_map[idx]
+        seq = self.sequences[seq_idx]
+        end = start + self.seq_len
 
-                rewards = torch.tensor(seq["rewards"][start:end], dtype=torch.float32)
-                dones = torch.tensor(seq["dones"][start:end], dtype=torch.float32)
+        z = torch.from_numpy(seq["latents"][start:end].astype(np.float32))
+        z_next = torch.from_numpy(seq["latents"][start + 1:end + 1].astype(np.float32))
 
-                return {
-                    "z": z,
-                    "z_next": z_next,
-                    "actions": torch.from_numpy(actions),
-                    "rewards": rewards,
-                    "dones": dones,
-                }
-            idx -= n_chunks
+        # Vectorized one-hot encoding
+        actions_idx = seq["actions"][start:end]
+        actions = np.zeros((self.seq_len, self.action_dim), dtype=np.float32)
+        actions[np.arange(self.seq_len), actions_idx] = 1.0
 
-        raise IndexError("Index out of range")
+        rewards = torch.from_numpy(seq["rewards"][start:end].astype(np.float32))
+        dones = torch.from_numpy(seq["dones"][start:end].astype(np.float32))
+
+        return {
+            "z": z,
+            "z_next": z_next,
+            "actions": torch.from_numpy(actions),
+            "rewards": rewards,
+            "dones": dones,
+        }
